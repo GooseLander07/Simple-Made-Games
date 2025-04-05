@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Snake Game</title>
+    <style>
+        /* Modern gradient background with animation */
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(-45deg, #2b5876, #4e4376);
+            background-size: 400% 400%;
+            animation: gradientBG 15s ease infinite;
+            font-family: 'Poppins', sans-serif;
+            overflow: hidden;
+            color: white;
+        }
+
+        @keyframes gradientBG {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* Game container with glass morphism effect */
+        #game-container {
+            position: relative;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        /* Canvas styling with inner shadow */
+        #game-canvas {
+            border-radius: 12px;
+            box-shadow: 
+                inset 0 0 15px rgba(0, 0, 0, 0.3),
+                0 10px 30px rgba(0, 0, 0, 0.3);
+            background-color: #1a1a2e;
+            display: block;
+        }
+
+        /* Score display with modern typography */
+        #score-display {
+            margin-top: 20px;
+            font-size: 1.8rem;
+            font-weight: 600;
+            text-align: center;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            letter-spacing: 1px;
+        }
+
+        /* Controls styling */
+        .controls {
+            margin-top: 20px;
+            text-align: center;
+            font-size: 1rem;
+            opacity: 0.8;
+        }
+
+        /* Game over overlay */
+        .game-over {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 12px;
+            z-index: 10;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .game-over.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .game-over h2 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            color: #ff6b6b;
+        }
+
+        .game-over p {
+            font-size: 1.2rem;
+            margin: 5px 0;
+        }
+
+        .restart-btn {
+            margin-top: 20px;
+            padding: 10px 25px;
+            background: linear-gradient(45deg, #ff6b6b, #ff8e8e);
+            border: none;
+            border-radius: 50px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .restart-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(255, 107, 107, 0.6);
+        }
+
+        /* Responsive design */
+        @media (max-width: 500px) {
+            #game-canvas {
+                width: 300px;
+                height: 300px;
+            }
+            
+            #score-display {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas" width="400" height="400"></canvas>
+        <div id="score-display">Score: 0</div>
+        <div class="controls">
+            <p>Arrow keys to move | Shift to dash | Ctrl to slow</p>
+        </div>
+        
+        <div class="game-over" id="game-over">
+            <h2>Game Over!</h2>
+            <p id="final-score">Score: 0</p>
+            <p>Press space to restart</p>
+            <button class="restart-btn" id="restart-btn">Play Again</button>
+        </div>
+    </div>
+
+    <script>
+        // Game constants
+        const GRID_SIZE = 20;
+        const TILE_COUNT = 20;
+        const INITIAL_SPEED = 150; // ms per move
+        const DASH_SPEED = 75; // ms per move when dashing
+        const SLOW_SPEED = 250; // ms per move when slowing
+        
+        // Food types
+        const FOOD_TYPES = {
+            APPLE: { color: '#FF5252', points: 1, effect: 'normal' },
+            ORANGE: { color: '#FF9800', points: 3, effect: 'extraPoints' },
+            BANANA: { color: '#FFEB3B', points: 2, effect: 'speedBoost' },
+            BOMB: { color: '#424242', points: 0, effect: 'gameOver' }
+        };
+        
+        // Game variables
+        let snake = [];
+        let foods = [];
+        let direction = 'right';
+        let nextDirection = 'right';
+        let score = 0;
+        let gameSpeed = INITIAL_SPEED;
+        let gameLoop;
+        let isGameOver = false;
+        let isDashing = false;
+        let isSlowing = false;
+        let speedBoostActive = false;
+        let speedBoostEndTime = 0;
+        
+        // DOM elements
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score-display');
+        const gameOverScreen = document.getElementById('game-over');
+        const finalScoreDisplay = document.getElementById('final-score');
+        const restartBtn = document.getElementById('restart-btn');
+        
+        // Initialize game
+        function initGame() {
+            // Clear any existing game loop
+            clearInterval(gameLoop);
+            
+            // Reset game state
+            snake = [];
+            foods = [];
+            direction = 'right';
+            nextDirection = 'right';
+            score = 0;
+            gameSpeed = INITIAL_SPEED;
+            isGameOver = false;
+            isDashing = false;
+            isSlowing = false;
+            speedBoostActive = false;
+            scoreDisplay.textContent = `Score: ${score}`;
+            gameOverScreen.classList.remove('active');
+            
+            // Create initial snake (3 segments)
+            for (let i = 2; i >= 0; i--) {
+                snake.push({ x: i, y: 0 });
+            }
+            
+            // Generate initial foods (1-2 items)
+            generateFoods();
+            
+            // Draw initial state
+            drawGame();
+            
+            // Start game loop
+            gameLoop = setInterval(gameStep, gameSpeed);
+        }
+        
+        // Generate 1-2 food items at random positions
+        function generateFoods() {
+            const foodCount = Math.random() > 0.7 ? 2 : 1; // 30% chance for 2 foods
+
+            for (let i = 0; i < foodCount; i++) {
+                let validPosition = false;
+                let newFood = {};
+
+                while (!validPosition) {
+                    // Randomly select food type (ensure at least one non-bomb food exists)
+                    const foodTypes = Object.keys(FOOD_TYPES);
+                    const randomType = (foods.some(f => f.type !== 'BOMB') || i > 0) 
+                        ? foodTypes[Math.floor(Math.random() * (foodTypes.length - 1))] 
+                        : 'BOMB';
+
+                    newFood = {
+                        x: Math.floor(Math.random() * TILE_COUNT),
+                        y: Math.floor(Math.random() * TILE_COUNT),
+                        type: randomType,
+                        rotation: 0
+                    };
+
+                    // Check if food is on snake or other foods
+                    validPosition = true;
+
+                    // Check snake collision
+                    for (let segment of snake) {
+                        if (segment.x === newFood.x && segment.y === newFood.y) {
+                            validPosition = false;
+                            break;
+                        }
+                    }
+
+                    // Check other foods collision
+                    if (validPosition) {
+                        for (let food of foods) {
+                            if (food.x === newFood.x && food.y === newFood.y) {
+                                validPosition = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                foods.push(newFood);
+            }
+
+            // Ensure at least one non-bomb food exists
+            if (foods.length === 1 && foods[0].type === 'BOMB') {
+                foods.pop();
+                generateFoods();
+            }
+        }
+
+        // Main game loop
+        function gameStep() {
+            if (isGameOver) return;
+
+            // Check if speed boost expired
+            if (speedBoostActive && Date.now() > speedBoostEndTime) {
+                speedBoostActive = false;
+                updateGameSpeed();
+            }
+
+            // Update direction
+            direction = nextDirection;
+
+            // Calculate new head position
+            const head = { ...snake[0] };
+
+            switch (direction) {
+                case 'up':
+                    head.y--;
+                    break;
+                case 'down':
+                    head.y++;
+                    break;
+                case 'left':
+                    head.x--;
+                    break;
+                case 'right':
+                    head.x++;
+                    break;
+            }
+
+            // Check for collisions
+            if (
+                head.x < 0 || head.x >= TILE_COUNT ||
+                head.y < 0 || head.y >= TILE_COUNT ||
+                snake.some(segment => segment.x === head.x && segment.y === head.y)
+            ) {
+                gameOver();
+                return;
+            }
+
+            // Add new head
+            snake.unshift(head);
+
+            // Check if snake ate any food
+            let foodEaten = false;
+            for (let i = foods.length - 1; i >= 0; i--) {
+                const food = foods[i];
+                if (head.x === food.x && head.y === food.y) {
+                    // Handle food effect
+                    handleFoodEffect(food.type);
+
+                    // Remove eaten food
+                    foods.splice(i, 1);
+                    foodEaten = true;
+                }
+            }
+
+            if (foodEaten) {
+                // Generate new foods if needed
+                if (foods.length < 1) {
+                    generateFoods();
+                }
+            } else {
+                // Remove tail if no food eaten
+                snake.pop();
+            }
+
+            // Ensure at least one non-bomb food exists
+            if (foods.length === 1 && foods[0].type === 'BOMB') {
+                foods.pop();
+                generateFoods();
+            }
+
+            // Draw everything
+            drawGame();
+        }
+        
+        // Handle different food effects
+        function handleFoodEffect(foodType) {
+            const food = FOOD_TYPES[foodType];
+            
+            switch (food.effect) {
+                case 'normal':
+                    score += food.points;
+                    break;
+                    
+                case 'extraPoints':
+                    score += food.points;
+                    break;
+                    
+                case 'speedBoost':
+                    score += food.points;
+                    speedBoostActive = true;
+                    speedBoostEndTime = Date.now() + 5000; // 5 seconds
+                    updateGameSpeed();
+                    break;
+                    
+                case 'gameOver':
+                    gameOver();
+                    return;
+            }
+            
+            scoreDisplay.textContent = `Score: ${score}`;
+        }
+        
+        // Update game speed based on current modifiers
+        function updateGameSpeed() {
+            clearInterval(gameLoop);
+            
+            if (speedBoostActive) {
+                gameSpeed = Math.max(30, INITIAL_SPEED / 2);
+            } else if (isDashing) {
+                gameSpeed = DASH_SPEED;
+            } else if (isSlowing) {
+                gameSpeed = SLOW_SPEED;
+            } else {
+                gameSpeed = INITIAL_SPEED;
+            }
+            
+            gameLoop = setInterval(gameStep, gameSpeed);
+        }
+        
+        // Draw the game state
+        function drawGame() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw grid pattern
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.lineWidth = 0.5;
+            for (let i = 0; i <= TILE_COUNT; i++) {
+                // Vertical lines
+                ctx.beginPath();
+                ctx.moveTo(i * GRID_SIZE, 0);
+                ctx.lineTo(i * GRID_SIZE, canvas.height);
+                ctx.stroke();
+                
+                // Horizontal lines
+                ctx.beginPath();
+                ctx.moveTo(0, i * GRID_SIZE);
+                ctx.lineTo(canvas.width, i * GRID_SIZE);
+                ctx.stroke();
+            }
+            
+            // Draw snake
+            const baseHue = 120; // Green base color
+            snake.forEach((segment, index) => {
+                const posX = segment.x * GRID_SIZE;
+                const posY = segment.y * GRID_SIZE;
+                const size = GRID_SIZE - 2;
+                
+                // Calculate color with slight variation
+                const hue = (baseHue + (index * 0.5)) % 360;
+                const saturation = 80;
+                const lightness = index === 0 ? 60 : 50; // Head slightly brighter
+                ctx.fillStyle = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+                
+                // Draw segment
+                ctx.beginPath();
+                ctx.roundRect(posX + 1, posY + 1, size, size, 4);
+                ctx.fill();
+                
+                // Draw eye strips on head
+                if (index === 0) {
+                    ctx.fillStyle = `hsl(${hue}, ${saturation}%, ${lightness + 10}%)`;
+                    
+                    // Eye strips change based on direction
+                    if (direction === 'up' || direction === 'down') {
+                        // Horizontal eyes
+                        ctx.fillRect(posX + size/4, posY + size/3, size/2, size/8);
+                        ctx.fillRect(posX + size/4, posY + size*2/3, size/2, size/8);
+                    } else {
+                        // Vertical eyes
+                        ctx.fillRect(posX + size/3, posY + size/4, size/8, size/2);
+                        ctx.fillRect(posX + size*2/3, posY + size/4, size/8, size/2);
+                    }
+                }
+            });
+            
+            // Draw foods
+            foods.forEach(food => {
+                food.rotation = (food.rotation + 0.02) % (Math.PI * 2);
+                const centerX = food.x * GRID_SIZE + GRID_SIZE / 2;
+                const centerY = food.y * GRID_SIZE + GRID_SIZE / 2;
+                const foodSize = GRID_SIZE - 4;
+                
+                ctx.save();
+                ctx.translate(centerX, centerY);
+                ctx.rotate(food.rotation);
+                ctx.translate(-centerX, -centerY);
+                
+                switch(food.type) {
+                    case 'APPLE':
+                        drawApple(centerX, centerY, foodSize);
+                        break;
+                    case 'ORANGE':
+                        drawOrange(centerX, centerY, foodSize);
+                        break;
+                    case 'BANANA':
+                        drawBanana(centerX, centerY, foodSize);
+                        break;
+                    case 'BOMB':
+                        drawBomb(centerX, centerY, foodSize);
+                        break;
+                }
+                
+                ctx.restore();
+            });
+            
+            // Draw speed boost indicator if active
+            if (speedBoostActive) {
+                const timeLeft = (speedBoostEndTime - Date.now()) / 1000;
+                if (timeLeft > 0) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+                    ctx.font = '12px Arial';
+                    ctx.textAlign = 'right';
+                    ctx.fillText(`Speed Boost: ${timeLeft.toFixed(1)}s`, canvas.width - 10, 15);
+                }
+            }
+        }
+        
+        // Draw apple food
+        function drawApple(x, y, size) {
+            // Apple body
+            const appleGradient = ctx.createRadialGradient(
+                x - 5, y - 5, 1,
+                x, y, size / 2
+            );
+            appleGradient.addColorStop(0, '#ff4d4d');
+            appleGradient.addColorStop(1, '#cc0000');
+            ctx.fillStyle = appleGradient;
+            
+            ctx.beginPath();
+            ctx.ellipse(x, y, size / 2, size / 2.2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Apple highlight
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.beginPath();
+            ctx.ellipse(x + 3, y - 4, size / 6, size / 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Apple stem
+            ctx.strokeStyle = '#5e2c04';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x, y - size / 2.2);
+            ctx.lineTo(x + 3, y - size / 1.8);
+            ctx.stroke();
+            
+            // Apple leaf
+            ctx.fillStyle = '#5cb85c';
+            ctx.beginPath();
+            ctx.moveTo(x + 3, y - size / 1.8);
+            ctx.quadraticCurveTo(x + 8, y - size / 1.8 - 5, x + 10, y - size / 1.8);
+            ctx.quadraticCurveTo(x + 8, y - size / 1.8 + 3, x + 3, y - size / 1.8);
+            ctx.fill();
+        }
+        
+        // Draw orange food
+        function drawOrange(x, y, size) {
+            // Orange body
+            const orangeGradient = ctx.createRadialGradient(
+                x - 5, y - 5, 1,
+                x, y, size / 2
+            );
+            orangeGradient.addColorStop(0, '#FFB74D');
+            orangeGradient.addColorStop(1, '#F57C00');
+            ctx.fillStyle = orangeGradient;
+            
+            ctx.beginPath();
+            ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Orange texture lines
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 6; i++) {
+                const angle = (i / 6) * Math.PI * 2;
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+                ctx.lineTo(
+                    x + Math.cos(angle) * size / 2,
+                    y + Math.sin(angle) * size / 2
+                );
+                ctx.stroke();
+            }
+            
+            // Orange highlight
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.beginPath();
+            ctx.arc(x + size/4, y - size/4, size/6, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Draw banana food
+        function drawBanana(x, y, size) {
+            // Banana body
+            ctx.fillStyle = '#FFEB3B';
+            ctx.beginPath();
+            ctx.moveTo(x - size/3, y);
+            ctx.bezierCurveTo(
+                x - size/2, y - size/3,
+                x + size/4, y - size/2,
+                x + size/2, y - size/4
+            );
+            ctx.bezierCurveTo(
+                x + size/3, y + size/4,
+                x - size/4, y + size/3,
+                x - size/3, y
+            );
+            ctx.fill();
+            
+            // Banana ends
+            ctx.fillStyle = '#8D6E63';
+            ctx.beginPath();
+            ctx.arc(x - size/3, y, size/8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.beginPath();
+            ctx.arc(x + size/2, y - size/4, size/8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Banana highlight
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.beginPath();
+            ctx.arc(x, y - size/4, size/8, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Draw bomb food
+        function drawBomb(x, y, size) {
+            // Bomb body
+            const bombGradient = ctx.createRadialGradient(
+                x, y, size / 8,
+                x, y, size / 2
+            );
+            bombGradient.addColorStop(0, '#501414FF');
+            bombGradient.addColorStop(1, '#202020FF');
+            ctx.fillStyle = bombGradient;
+            
+            ctx.beginPath();
+            ctx.arc(x, y, size / 2, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Bomb fuse
+            ctx.strokeStyle = '#815342FF';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x + size/2, y - size/4);
+            ctx.lineTo(x + size/1.5, y - size/2);
+            ctx.lineTo(x + size/1.8, y - size/1.8);
+            ctx.stroke();
+            
+            // Bomb fuse fire
+            ctx.fillStyle = '#F84A15FF';
+            ctx.beginPath();
+            ctx.arc(x + size/1.8, y - size/1.8, size/8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Skull icon
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            // Skull shape
+            ctx.arc(x, y, size/3, 0, Math.PI * 2);
+            // Eye sockets
+            ctx.moveTo(x - size/6, y - size/8);
+            ctx.arc(x - size/6, y - size/8, size/10, 0, Math.PI * 2);
+            ctx.moveTo(x + size/6, y - size/8);
+            ctx.arc(x + size/6, y - size/8, size/10, 0, Math.PI * 2);
+            // Mouth
+            ctx.moveTo(x - size/6, y + size/8);
+            ctx.lineTo(x + size/6, y + size/8);
+            ctx.lineTo(x, y + size/4);
+            ctx.closePath();
+            ctx.fill();
+        }
+        
+        // Handle game over
+        function gameOver() {
+            isGameOver = true;
+            clearInterval(gameLoop);
+            
+            // Update final score display
+            finalScoreDisplay.textContent = `Score: ${score}`;
+            
+            // Show game over screen
+            gameOverScreen.classList.add('active');
+        }
+        
+        // Event listeners
+        document.addEventListener('keydown', (e) => {
+            if (isGameOver && e.code === 'Space') {
+                initGame();
+                return;
+            }
+            
+            switch (e.key) {
+                case 'ArrowUp':
+                    if (direction !== 'down') nextDirection = 'up';
+                    break;
+                case 'ArrowDown':
+                    if (direction !== 'up') nextDirection = 'down';
+                    break;
+                case 'ArrowLeft':
+                    if (direction !== 'right') nextDirection = 'left';
+                    break;
+                case 'ArrowRight':
+                    if (direction !== 'left') nextDirection = 'right';
+                    break;
+                case 'Shift':
+                    isDashing = true;
+                    updateGameSpeed();
+                    break;
+                case 'Control':
+                    isSlowing = true;
+                    updateGameSpeed();
+                    break;
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            switch (e.key) {
+                case 'Shift':
+                    isDashing = false;
+                    updateGameSpeed();
+                    break;
+                case 'Control':
+                    isSlowing = false;
+                    updateGameSpeed();
+                    break;
+            }
+        });
+        
+        restartBtn.addEventListener('click', initGame);
+        
+        // Start the game
+        initGame();
+    </script>
+</body>
+</html>
